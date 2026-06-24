@@ -3,6 +3,7 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
 import type { Purchase, PurchaseItem } from "@/types/database"
+import { syncPurchase, deletePurchaseFromDB } from "@/lib/sync"
 
 interface PurchaseState {
   purchases: Purchase[]
@@ -22,17 +23,21 @@ export const usePurchaseStore = create<PurchaseState>()(
       purchases: [],
       purchaseItems: [],
 
-      addPurchase: (purchase, items) =>
+      addPurchase: (purchase, items) => {
         set((state) => ({
           purchases: [purchase, ...state.purchases],
           purchaseItems: [...state.purchaseItems, ...items],
-        })),
+        }))
+        syncPurchase(purchase, items)
+      },
 
-      removePurchase: (id) =>
+      removePurchase: (id) => {
         set((state) => ({
           purchases: state.purchases.filter((p) => p.id !== id),
           purchaseItems: state.purchaseItems.filter((i) => i.purchase_id !== id),
-        })),
+        }))
+        deletePurchaseFromDB(id)
+      },
 
       getPurchaseItems: (purchaseId) => {
         return get().purchaseItems.filter((i) => i.purchase_id === purchaseId)

@@ -3,6 +3,12 @@
 import { create } from "zustand"
 import { persist } from "zustand/middleware"
 import type { ShoppingList, ShoppingListItem } from "@/types/database"
+import {
+  syncShoppingList,
+  syncShoppingListItem,
+  deleteShoppingListFromDB,
+  deleteShoppingListItemFromDB,
+} from "@/lib/sync"
 
 interface ShoppingListState {
   lists: ShoppingList[]
@@ -37,6 +43,7 @@ function ensureActiveList(state: { lists: ShoppingList[] }): ShoppingList {
     completed_at: null,
   }
   state.lists.push(newList)
+  syncShoppingList(newList)
   return newList
 }
 
@@ -46,23 +53,30 @@ export const useShoppingListStore = create<ShoppingListState>()(
       lists: [],
       items: [],
 
-      createList: (list) =>
-        set((state) => ({ lists: [...state.lists, list] })),
+      createList: (list) => {
+        set((state) => ({ lists: [...state.lists, list] }))
+        syncShoppingList(list)
+      },
 
-      removeList: (id) =>
+      removeList: (id) => {
         set((state) => ({
           lists: state.lists.filter((l) => l.id !== id),
           items: state.items.filter((i) => i.shopping_list_id !== id),
-        })),
+        }))
+        deleteShoppingListFromDB(id)
+      },
 
-      completeList: (id) =>
+      completeList: (id) => {
         set((state) => ({
           lists: state.lists.map((l) =>
             l.id === id
               ? { ...l, status: "completed" as const, completed_at: new Date().toISOString() }
               : l
           ),
-        })),
+        }))
+        const updated = get().lists.find((l) => l.id === id)
+        if (updated) syncShoppingList(updated)
+      },
 
       addItemToList: (productId, productName, quantity = 1) => {
         const state = get()
@@ -86,26 +100,35 @@ export const useShoppingListStore = create<ShoppingListState>()(
         }
 
         set({ lists, items: [...state.items, newItem] })
+        syncShoppingListItem(newItem)
       },
 
-      removeItem: (id) =>
+      removeItem: (id) => {
         set((state) => ({
           items: state.items.filter((i) => i.id !== id),
-        })),
+        }))
+        deleteShoppingListItemFromDB(id)
+      },
 
-      toggleItem: (id) =>
+      toggleItem: (id) => {
         set((state) => ({
           items: state.items.map((i) =>
             i.id === id ? { ...i, is_checked: !i.is_checked } : i
           ),
-        })),
+        }))
+        const updated = get().items.find((i) => i.id === id)
+        if (updated) syncShoppingListItem(updated)
+      },
 
-      updateItemQuantity: (id, quantity) =>
+      updateItemQuantity: (id, quantity) => {
         set((state) => ({
           items: state.items.map((i) =>
             i.id === id ? { ...i, quantity } : i
           ),
-        })),
+        }))
+        const updated = get().items.find((i) => i.id === id)
+        if (updated) syncShoppingListItem(updated)
+      },
 
       getActiveList: () => {
         return get().lists.find((l) => l.status === "active")

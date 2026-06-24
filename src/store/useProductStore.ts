@@ -4,6 +4,12 @@ import { create } from "zustand"
 import { persist } from "zustand/middleware"
 import type { Product, Category, Supermarket } from "@/types/database"
 import { DEFAULT_CATEGORIES, DEFAULT_PRODUCTS, DEFAULT_SUPERMARKETS } from "@/lib/seed-data"
+import {
+  syncProduct,
+  deleteProductFromDB,
+  syncSupermarket,
+  deleteSupermarketFromDB,
+} from "@/lib/sync"
 
 const SEED_VERSION = 2
 
@@ -48,20 +54,27 @@ export const useProductStore = create<ProductState>()(
         })
       },
 
-      addProduct: (product) =>
-        set((state) => ({ products: [...state.products, product] })),
+      addProduct: (product) => {
+        set((state) => ({ products: [...state.products, product] }))
+        syncProduct(product)
+      },
 
-      updateProduct: (id, data) =>
+      updateProduct: (id, data) => {
         set((state) => ({
           products: state.products.map((p) =>
             p.id === id ? { ...p, ...data } : p
           ),
-        })),
+        }))
+        const updated = get().products.find((p) => p.id === id)
+        if (updated) syncProduct(updated)
+      },
 
-      removeProduct: (id) =>
+      removeProduct: (id) => {
         set((state) => ({
           products: state.products.filter((p) => p.id !== id),
-        })),
+        }))
+        deleteProductFromDB(id)
+      },
 
       setProducts: (products) => set({ products }),
 
@@ -70,20 +83,27 @@ export const useProductStore = create<ProductState>()(
 
       setCategories: (categories) => set({ categories }),
 
-      addSupermarket: (supermarket) =>
-        set((state) => ({ supermarkets: [...state.supermarkets, supermarket] })),
+      addSupermarket: (supermarket) => {
+        set((state) => ({ supermarkets: [...state.supermarkets, supermarket] }))
+        syncSupermarket(supermarket)
+      },
 
-      updateSupermarket: (id, data) =>
+      updateSupermarket: (id, data) => {
         set((state) => ({
           supermarkets: state.supermarkets.map((s) =>
             s.id === id ? { ...s, ...data } : s
           ),
-        })),
+        }))
+        const updated = get().supermarkets.find((s) => s.id === id)
+        if (updated) syncSupermarket(updated)
+      },
 
-      removeSupermarket: (id) =>
+      removeSupermarket: (id) => {
         set((state) => ({
           supermarkets: state.supermarkets.filter((s) => s.id !== id),
-        })),
+        }))
+        deleteSupermarketFromDB(id)
+      },
 
       setSupermarkets: (supermarkets) => set({ supermarkets }),
     }),
