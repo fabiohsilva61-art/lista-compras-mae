@@ -1,0 +1,38 @@
+{
+  "name": "Controle de Compras",
+  "short_name": "Compras",
+  "description": "Controle inteligente de compras domésticas",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f5fa",
+  "theme_color": "#4338ca",
+  "orientation": "portrait",
+  "categories": ["shopping", "lifestyle"],
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Lista de Compras",
+      "url": "/shopping-list",
+      "icons": [{ "src": "/icons/icon.svg", "sizes": "any" }]
+    },
+    {
+      "name": "Produtos",
+      "url": "/products",
+      "icons": [{ "src": "/icons/icon.svg", "sizes": "any" }]
+    }
+  ]
+}
