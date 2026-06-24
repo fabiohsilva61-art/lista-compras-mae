@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx create-next-app@latest . --typescript --tailwind --eslint --app --src-dir --import-alias \"@/*\" --use-npm --no-turbopack)",
+      "Read(//c/Users/User/Desktop/**)",
+      "Bash(mkdir lista-compras-mae-temp *)",
+      "Bash(mv lista-compras-mae/controle-compras.md lista-compras-mae-temp/)",
+      "Bash(mv \"c:\\\\Users\\\\User\\\\Desktop\\\\lista-compras-mae\\\\.agents\" \"c:\\\\Users\\\\User\\\\Desktop\\\\lista-compras-mae-temp/\" 2>&1 && ls -la \"c:\\\\Users\\\\User\\\\Desktop\\\\lista-compras-mae\")"
+    ],
+    "additionalDirectories": [
+      "c:\\Users\\User\\Desktop\\lista-compras-mae-temp"
+    ]
+  }
+}
