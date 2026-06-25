@@ -1,11 +1,10 @@
 "use client"
 
 import { useState, useRef } from "react"
-import { Camera, Upload, FileText, Loader2, AlertCircle } from "lucide-react"
+import { Camera, FileText, Loader2, Plus, Trash2, Sparkles } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Card, CardContent } from "@/components/ui/card"
 import {
   Dialog,
   DialogContent,
@@ -15,13 +14,7 @@ import {
 } from "@/components/ui/dialog"
 import { useProductStore } from "@/store/useProductStore"
 import { usePurchaseStore } from "@/store/usePurchaseStore"
-
-interface ReceiptItem {
-  name: string
-  quantity: number
-  unitPrice: number
-  totalPrice: number
-}
+import { processReceipt, type OcrReceiptItem } from "@/lib/ocr"
 
 interface ReceiptUploadProps {
   open: boolean
@@ -33,28 +26,50 @@ export function ReceiptUpload({ open, onOpenChange }: ReceiptUploadProps) {
   const addPurchase = usePurchaseStore((s) => s.addPurchase)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const [step, setStep] = useState<"upload" | "review" | "manual">("upload")
+  const [step, setStep] = useState<"upload" | "processing" | "review">("upload")
   const [receiptImage, setReceiptImage] = useState<string | null>(null)
-  const [items, setItems] = useState<ReceiptItem[]>([])
+  const [ocrProgress, setOcrProgress] = useState(0)
+  const [items, setItems] = useState<OcrReceiptItem[]>([])
   const [supermarketId, setSupermarketId] = useState("")
   const [totalAmount, setTotalAmount] = useState("")
   const [purchaseDate, setPurchaseDate] = useState(
     new Date().toISOString().split("T")[0]
   )
+  const [detectedMarket, setDetectedMarket] = useState<string | null>(null)
 
-  // Manual entry fields
   const [manualName, setManualName] = useState("")
   const [manualQty, setManualQty] = useState("1")
   const [manualPrice, setManualPrice] = useState("")
 
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+  async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
     if (!file) return
 
     const reader = new FileReader()
-    reader.onload = (ev) => {
-      setReceiptImage(ev.target?.result as string)
-      setStep("manual")
+    reader.onload = async (ev) => {
+      const dataUrl = ev.target?.result as string
+      setReceiptImage(dataUrl)
+      setStep("processing")
+      setOcrProgress(0)
+
+      try {
+        const result = await processReceipt(dataUrl, setOcrProgress)
+        setItems(result.items)
+        if (result.total) {
+          setTotalAmount(result.total.toFixed(2).replace(".", ","))
+        }
+        if (result.supermarket) {
+          setDetectedMarket(result.supermarket)
+          const match = supermarkets.find((sm) =>
+            sm.name.toLowerCase().includes(result.supermarket!.toLowerCase()) ||
+            result.supermarket!.toLowerCase().includes(sm.name.toLowerCase())
+          )
+          if (match) setSupermarketId(match.id)
+        }
+      } catch {
+        // OCR failed, let user enter manually
+      }
+      setStep("review")
     }
     reader.readAsDataURL(file)
   }
@@ -82,6 +97,18 @@ export function ReceiptUpload({ open, onOpenChange }: ReceiptUploadProps) {
     setItems(items.filter((_, i) => i !== index))
   }
 
+  function updateItem(index: number, field: keyof OcrReceiptItem, value: string) {
+    setItems(items.map((item, i) => {
+      if (i !== index) return item
+      if (field === "name") return { ...item, name: value }
+      const num = parseFloat(value.replace(",", ".")) || 0
+      if (field === "quantity") return { ...item, quantity: num, totalPrice: num * item.unitPrice }
+      if (field === "unitPrice") return { ...item, unitPrice: num, totalPrice: item.quantity * num }
+      if (field === "totalPrice") return { ...item, totalPrice: num }
+      return item
+    }))
+  }
+
   function handleSave() {
     const purchaseId = crypto.randomUUID()
     const now = new Date().toISOString()
@@ -96,7 +123,7 @@ export function ReceiptUpload({ open, onOpenChange }: ReceiptUploadProps) {
         total_amount: total > 0 ? total : null,
         items_count: items.length,
         purchase_date: purchaseDate,
-        receipt_url: receiptImage,
+        receipt_url: null,
         notes: null,
         created_at: now,
       },
@@ -123,6 +150,8 @@ export function ReceiptUpload({ open, onOpenChange }: ReceiptUploadProps) {
     setManualName("")
     setManualQty("1")
     setManualPrice("")
+    setDetectedMarket(null)
+    setOcrProgress(0)
     onOpenChange(false)
   }
 
@@ -134,7 +163,7 @@ export function ReceiptUpload({ open, onOpenChange }: ReceiptUploadProps) {
         <DialogHeader>
           <DialogTitle className="text-xl flex items-center gap-2">
             <FileText className="size-6 text-primary" />
-            {step === "upload" ? "Registrar Compra" : "Itens da Compra"}
+            Registrar Compra
           </DialogTitle>
         </DialogHeader>
 
@@ -147,6 +176,7 @@ export function ReceiptUpload({ open, onOpenChange }: ReceiptUploadProps) {
           className="hidden"
         />
 
+        {/* STEP: Upload */}
         {step === "upload" && (
           <div className="flex flex-col gap-4">
             <Button
@@ -158,29 +188,63 @@ export function ReceiptUpload({ open, onOpenChange }: ReceiptUploadProps) {
             </Button>
 
             <Button
-              onClick={() => setStep("manual")}
+              onClick={() => {
+                if (fileInputRef.current) {
+                  fileInputRef.current.removeAttribute("capture")
+                  fileInputRef.current.click()
+                  fileInputRef.current.setAttribute("capture", "environment")
+                }
+              }}
               variant="outline"
               className="h-14 rounded-xl text-lg font-bold"
             >
               <FileText className="size-5 mr-2" />
+              Escolher Imagem da Galeria
+            </Button>
+
+            <Button
+              onClick={() => setStep("review")}
+              variant="outline"
+              className="h-14 rounded-xl text-lg font-bold"
+            >
+              <Plus className="size-5 mr-2" />
               Digitar Manualmente
             </Button>
 
-            <div className="rounded-xl bg-muted/50 p-4">
+            <div className="rounded-xl bg-primary/5 border border-primary/20 p-4">
               <div className="flex items-start gap-2">
-                <AlertCircle className="size-5 text-muted-foreground shrink-0 mt-0.5" />
+                <Sparkles className="size-5 text-primary shrink-0 mt-0.5" />
                 <p className="text-sm text-muted-foreground">
-                  O reconhecimento automático de cupom (OCR) será ativado quando
-                  uma chave de API for configurada. Por enquanto, digite os itens manualmente.
+                  <strong className="text-foreground">OCR automático ativado!</strong>{" "}
+                  Tire uma foto do cupom fiscal e o sistema vai ler os itens e preços automaticamente.
                 </p>
               </div>
             </div>
           </div>
         )}
 
-        {step === "manual" && (
+        {/* STEP: Processing OCR */}
+        {step === "processing" && (
+          <div className="flex flex-col items-center gap-4 py-8">
+            <Loader2 className="size-12 text-primary animate-spin" />
+            <div className="text-center">
+              <p className="text-lg font-bold">Lendo cupom fiscal...</p>
+              <p className="text-muted-foreground">Isso pode levar alguns segundos</p>
+            </div>
+            <div className="w-full h-3 rounded-full bg-muted overflow-hidden">
+              <div
+                className="h-full rounded-full bg-primary transition-all duration-300"
+                style={{ width: `${ocrProgress}%` }}
+              />
+            </div>
+            <p className="text-sm text-muted-foreground">{ocrProgress}%</p>
+          </div>
+        )}
+
+        {/* STEP: Review */}
+        {step === "review" && (
           <div className="flex flex-col gap-4">
-            {/* Foto do cupom (se houver) */}
+            {/* Receipt preview */}
             {receiptImage && (
               <div className="rounded-xl overflow-hidden bg-muted max-h-32">
                 <img
@@ -191,7 +255,18 @@ export function ReceiptUpload({ open, onOpenChange }: ReceiptUploadProps) {
               </div>
             )}
 
-            {/* Supermercado e data */}
+            {/* OCR result badge */}
+            {items.length > 0 && receiptImage && (
+              <div className="rounded-xl bg-success/10 border border-success/30 p-3 flex items-center gap-2">
+                <Sparkles className="size-5 text-success" />
+                <p className="text-sm font-medium">
+                  {items.length} {items.length === 1 ? "item encontrado" : "itens encontrados"} pelo OCR
+                  {detectedMarket && ` · Mercado: ${detectedMarket}`}
+                </p>
+              </div>
+            )}
+
+            {/* Date + Total */}
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label className="text-sm font-semibold mb-1 block">Data</Label>
@@ -203,9 +278,7 @@ export function ReceiptUpload({ open, onOpenChange }: ReceiptUploadProps) {
                 />
               </div>
               <div>
-                <Label className="text-sm font-semibold mb-1 block">
-                  Total (R$)
-                </Label>
+                <Label className="text-sm font-semibold mb-1 block">Total (R$)</Label>
                 <Input
                   type="text"
                   inputMode="decimal"
@@ -217,6 +290,7 @@ export function ReceiptUpload({ open, onOpenChange }: ReceiptUploadProps) {
               </div>
             </div>
 
+            {/* Supermarket */}
             <div>
               <Label className="text-sm font-semibold mb-1 block">Mercado</Label>
               <div className="flex flex-wrap gap-1.5">
@@ -238,7 +312,44 @@ export function ReceiptUpload({ open, onOpenChange }: ReceiptUploadProps) {
               </div>
             </div>
 
-            {/* Adicionar item */}
+            {/* Items list (editable) */}
+            {items.length > 0 && (
+              <div className="flex flex-col gap-1.5">
+                <p className="text-sm font-semibold">Itens</p>
+                {items.map((item, idx) => (
+                  <div
+                    key={idx}
+                    className="flex items-center gap-1.5 rounded-lg bg-muted/50 px-2 py-1.5"
+                  >
+                    <Input
+                      value={item.name}
+                      onChange={(e) => updateItem(idx, "name", e.target.value)}
+                      className="h-9 rounded-lg flex-1 text-sm min-w-0"
+                    />
+                    <Input
+                      value={item.quantity.toString()}
+                      onChange={(e) => updateItem(idx, "quantity", e.target.value)}
+                      inputMode="decimal"
+                      className="h-9 rounded-lg w-12 text-center text-sm"
+                    />
+                    <Input
+                      value={item.unitPrice.toFixed(2)}
+                      onChange={(e) => updateItem(idx, "unitPrice", e.target.value)}
+                      inputMode="decimal"
+                      className="h-9 rounded-lg w-20 text-sm"
+                    />
+                    <button
+                      onClick={() => removeItem(idx)}
+                      className="text-destructive shrink-0 p-1"
+                    >
+                      <Trash2 className="size-4" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Add manual item */}
             <div className="border rounded-xl p-3">
               <p className="text-sm font-semibold mb-2">Adicionar item</p>
               <div className="flex gap-2">
@@ -273,31 +384,10 @@ export function ReceiptUpload({ open, onOpenChange }: ReceiptUploadProps) {
               </div>
             </div>
 
-            {/* Lista de itens */}
+            {/* Totals */}
             {items.length > 0 && (
-              <div className="flex flex-col gap-1.5">
-                {items.map((item, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between rounded-lg bg-muted/50 px-3 py-2 text-sm"
-                  >
-                    <span className="truncate flex-1">{item.name}</span>
-                    <span className="text-muted-foreground mx-2">
-                      x{item.quantity}
-                    </span>
-                    <span className="font-semibold">
-                      R$ {item.totalPrice.toFixed(2)}
-                    </span>
-                    <button
-                      onClick={() => removeItem(idx)}
-                      className="ml-2 text-destructive text-xs"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                ))}
-
-                <div className="flex items-center justify-between rounded-xl bg-primary/5 border border-primary/20 p-3 mt-1">
+              <div className="rounded-xl bg-primary/5 border border-primary/20 p-3">
+                <div className="flex items-center justify-between">
                   <span className="font-bold">
                     {items.length} {items.length === 1 ? "item" : "itens"}
                   </span>
@@ -308,7 +398,7 @@ export function ReceiptUpload({ open, onOpenChange }: ReceiptUploadProps) {
               </div>
             )}
 
-            {/* Ações */}
+            {/* Actions */}
             <div className="flex gap-3">
               <DialogClose
                 render={
